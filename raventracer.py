@@ -53,12 +53,13 @@ class Raven(object):
                             'TimeCluster'               : self.handle_time_cluster_xml_msg}
         self.skip_message = {"type" : "skip"}
         self.stop_message = {"type" : "stop"}
+        self.raw_xml_msg = ''
 
     def calc_date(self, secs_since_epoch):
         base = datetime.datetime(year=2000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         since = datetime.timedelta(seconds=int(secs_since_epoch,16))
-        read_time = base + since
-        return read_time
+        return base + since
+
 
     def derive_mac_address(self, raw_mac_address):
         mac_address = raw_mac_address[0:2]
@@ -97,8 +98,8 @@ class Raven(object):
 
     def read(self):
         try:
-            raw_xml_msg = self.raven_port.read()
-            stanza = xml.etree.ElementTree.fromstring(raw_xml_msg)
+            self.raw_xml_msg = self.raven_port.read()
+            stanza = xml.etree.ElementTree.fromstring(self.raw_xml_msg)
             if stanza.tag in self.msg_handler.keys():
                 parsed_msg = self.msg_handler[stanza.tag](stanza)
                 return parsed_msg
@@ -107,7 +108,7 @@ class Raven(object):
                 return self.skip_message
         except xml.etree.ElementTree.ParseError as err:
             print "parse error - probably corrupt message - skipping"
-            print raw_xml_msg
+            print self.raw_xml_msg
             return self.skip_message
 
     def display(self):
@@ -115,21 +116,18 @@ class Raven(object):
 
 
 class RavenTracer(multiprocessing.Process):
-    def __init__(self, raven_config, q, run_time):
+    def __init__(self, raven_config, q, stop_request):
         multiprocessing.Process.__init__(self)
         self.raven_config = raven_config
         self.q = q
-        self.run_time = run_time
+        self.stop_request = stop_request
         self.r = Raven(self.raven_config)
 
     def run(self):
-        now = datetime.datetime.now()
-        end_time = now + datetime.timedelta(seconds=self.run_time)
-        while now < end_time:
+        while not self.stop_request.is_set():
             msg = self.r.read()
             self.q.put(msg)
             print msg
-            now = datetime.datetime.now()
         else:
             self.q.put({"type" : "stop"})
         return
