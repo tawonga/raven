@@ -57,13 +57,13 @@ class Raven(object):
 
     def calc_date(self, secs_since_epoch):
         base = datetime.datetime(year=2000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        since = datetime.timedelta(seconds=int(secs_since_epoch,16))
+        since = datetime.timedelta(seconds=int(secs_since_epoch,16)+36000+3600)
         return base + since
 
 
     def derive_mac_address(self, raw_mac_address):
         mac_address = raw_mac_address[0:2]
-        for i in range(1, 6):
+        for i in range(1, len(raw_mac_address)/2):
             mac_address  += ":" + raw_mac_address[2*i:(2*i)+2]
         return mac_address
 
