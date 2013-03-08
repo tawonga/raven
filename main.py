@@ -8,8 +8,8 @@ import re
 import ravenlogger
 import raventracer
 import serial.tools.list_ports_posix
-import time
 import sys
+import wxgui
 
 
 MODULE = "raven"
@@ -72,22 +72,20 @@ class CfgParser(object):
 
 def scan_and_record(raven_usb_config, db_config):
 
-    q = multiprocessing.Queue()
+    log_queue = multiprocessing.Queue()
+    plot_queue = multiprocessing.Queue()
 
-    recorder = ravenlogger.RavenRecorder(db_config, raven_usb_config, q)
+    recorder = ravenlogger.RavenRecorder(db_config, log_queue)
     recorder.start()
-
-    tracer = raventracer.RavenTracer(raven_usb_config, q, 20)
-    tracer.start()
 
     stop_request = multiprocessing.Event()
     stop_request.clear()
 
-    tracer = raventracer.RavenTracer(raven_usb_config, q, stop_request)
+    tracer = raventracer.RavenTracer(raven_usb_config, log_queue, plot_queue, stop_request)
     tracer.start()
 
-    time.sleep(20)
-    stop_request.set()
+    app = wxgui.RavenApp(plot_queue=plot_queue, stop_request=stop_request)
+    app.MainLoop()
 
     recorder.join()
     return

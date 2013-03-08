@@ -121,8 +121,8 @@ class RavenTracer(multiprocessing.Process):
         self.raven_config = raven_config
         self.log_queue = log_queue
         self.plot_queue = plot_queue
-        self.message_types_to_plot = [0]
         self.stop_request = stop_request
+        self.message_types_to_plot = ['0']
         self.r = Raven(self.raven_config)
 
     def run(self):

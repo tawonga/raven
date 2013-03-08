@@ -39,10 +39,11 @@ class PowerSensor(object):
 
 class GraphFrame(wx.Frame):
 
-    def __init__(self, plot_queue):
+    def __init__(self, plot_queue, stop_request):
         wx.Frame.__init__(self, None, -1, self.title)
 
         self.title = 'Smart Meter Analyzer'
+        self.stop_request=stop_request
         self.plot_queue = plot_queue
         self.power_sensor = PowerSensor(self.plot_queue)
         self.power_sensor.refresh()
@@ -142,6 +143,8 @@ class GraphFrame(wx.Frame):
 
     def on_pause_button(self, event):
         self.paused = not self.paused
+        if self.paused:
+            self.stop_request.set()
 
     def on_update_pause_button(self, event):
         label = "Resume" if self.paused else "Pause"
@@ -190,18 +193,14 @@ class GraphFrame(wx.Frame):
 
 class RavenApp(wx.App):
 
-    def __init__(self, redirect=True, filename=None, useBestVisual=False, clearSigInt=True, plot_queue=None):
+    def __init__(self, redirect=True, filename=None, useBestVisual=False, clearSigInt=True,
+                 plot_queue=None, stop_request=None):
         self.plot_queue = plot_queue
+        self.stop_request = stop_request
         wx.App.__init__(self, redirect, filename, useBestVisual, clearSigInt)
 
     def OnInit(self):
-        self.frame = GraphFrame(self.plot_queue)
+        self.frame = GraphFrame(self.plot_queue, stop_request= self.stop_request)
         self.frame.Show(True)
         return True
 
-
-if __name__ == '__main__':
-    app = wx.PySimpleApp()
-    app.frame = GraphFrame()
-    app.frame.Show()
-    app.MainLoop()

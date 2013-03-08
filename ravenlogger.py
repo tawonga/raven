@@ -128,7 +128,7 @@ class RavenLogger(object):
 
 
 class RavenRecorder(multiprocessing.Process):
-    def __init__(self, db_config, log_queue, stop_request):
+    def __init__(self, db_config, log_queue):
         super(RavenRecorder, self).__init__()
         self.db_config = db_config
         self.log_queue = log_queue
