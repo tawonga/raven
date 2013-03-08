@@ -1,5 +1,4 @@
 __author__ = 'ray'
-from datetime import datetime
 import os
 import collections
 import Queue
@@ -39,13 +38,11 @@ class PowerSensor(object):
 
 
 class GraphFrame(wx.Frame):
-    """ The main frame of the application
-    """
-    title = 'Smart Meter Analyzer'
 
     def __init__(self, plot_queue):
         wx.Frame.__init__(self, None, -1, self.title)
 
+        self.title = 'Smart Meter Analyzer'
         self.plot_queue = plot_queue
         self.power_sensor = PowerSensor(self.plot_queue)
         self.power_sensor.refresh()
@@ -107,23 +104,23 @@ class GraphFrame(wx.Frame):
                                              y=list(self.power_sensor.power_values), ydate=False,
                                              fmt='-')[0]
         self.axes.set_axis_bgcolor('black')
-        self.axes.set_title('Smart Meter Trace', size=12)
+        self.axes.set_title(self.title, size=12)
         self.axes.xaxis.set_major_locator(minutes)
         self.axes.xaxis.set_major_formatter(minutesFmt)
-#        self.axes.autoscale_view()
+        self.axes.autoscale_view()
 
     def draw_plot(self):
         """ Redraws the plot
         """
-        now = datetime.now()
-        ago = now - datetime.timedelta(secs=800)
-        x_max = matplotlib.dates.date2num(now)
-        x_min = matplotlib.dates.date2num(ago)
-        y_min = 0
-        y_max = 5000
+#        now = datetime.now()
+#        ago = now - datetime.timedelta(secs=800)
+#        x_max = matplotlib.dates.date2num(now)
+#        x_min = matplotlib.dates.date2num(ago)
+#        y_min = 0
+#        y_max = 5000
 
-        self.axes.set_xbound(lower=x_min, upper=x_max)
-        self.axes.set_ybound(lower=y_min, upper=y_max)
+#        self.axes.set_xbound(lower=x_min, upper=x_max)
+#        self.axes.set_ybound(lower=y_min, upper=y_max)
 
         # anecdote: axes.grid assumes b=True if any other flag is
         # given even if b is set to False.
@@ -189,6 +186,18 @@ class GraphFrame(wx.Frame):
 
     def on_flash_status_off(self, event):
         self.status_bar.SetStatusText('')
+
+
+class RavenApp(wx.App):
+
+    def __init__(self, redirect=True, filename=None, useBestVisual=False, clearSigInt=True, plot_queue=None):
+        self.plot_queue = plot_queue
+        wx.App.__init__(self, redirect, filename, useBestVisual, clearSigInt)
+
+    def OnInit(self):
+        self.frame = GraphFrame(self.plot_queue)
+        self.frame.Show(True)
+        return True
 
 
 if __name__ == '__main__':

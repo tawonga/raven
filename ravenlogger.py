@@ -128,18 +128,17 @@ class RavenLogger(object):
 
 
 class RavenRecorder(multiprocessing.Process):
-    def __init__(self, db_config, raven_config, q):
+    def __init__(self, db_config, log_queue, stop_request):
         super(RavenRecorder, self).__init__()
         self.db_config = db_config
-        self.raven_config = raven_config
-        self.q = q
+        self.log_queue = log_queue
         self.raven_logger = RavenLogger(db_config)
-        self.q_msg_handler = {'0'      : self.handle_instantaneous_demand_msg,
-                              '1'      : self.handle_current_summation_delivered_msg,
-                              '2'      : self.handle_connection_status_msg,
-                              '3'      : self.handle_time_cluster_msg,
-                              'skip'   : self.handle_skip_msg,
-                              'stop'   : self.handle_stop_msg}
+        self.log_queue_msg_handler = {'0'      : self.handle_instantaneous_demand_msg,
+                                      '1'      : self.handle_current_summation_delivered_msg,
+                                      '2'      : self.handle_connection_status_msg,
+                                      '3'      : self.handle_time_cluster_msg,
+                                      'skip'   : self.handle_skip_msg,
+                                      'stop'   : self.handle_stop_msg}
         self.is_logging = True
         self.trace_registered = False
 
@@ -172,17 +171,17 @@ class RavenRecorder(multiprocessing.Process):
     def run(self):
         while self.is_logging:
             try:
-                q_msq = self.q.get(block=True, timeout=60)
+                q_msq = self.log_queue.get(block=True, timeout=60)
                 type = q_msq["type"]
-                if type in self.q_msg_handler.keys():
-                    status = self.q_msg_handler[type](q_msq)
+                if type in self.log_queue_msg_handler.keys():
+                    status = self.log_queue_msg_handler[type](q_msq)
                 else:
                     print "unexpected message type"
                     continue
             except Queue.Empty:
                 self.is_logging = False
         else:
-            self.q.close()
+            self.log_queue.close()
             self.raven_logger.mark_done()
         return
 
