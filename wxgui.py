@@ -3,10 +3,8 @@ import os
 import collections
 import Queue
 import wx
+import datetime
 
-# The recommended way to use wx with mpl is with the WXAgg
-# backend.
-#
 import matplotlib
 import matplotlib.dates
 
@@ -40,11 +38,12 @@ class PowerSensor(object):
 class GraphFrame(wx.Frame):
 
     def __init__(self, plot_queue, stop_request):
+        self.title = 'Smart Meter Analyzer'
+        self.stop_request = stop_request
+        self.plot_queue = plot_queue
+
         wx.Frame.__init__(self, None, -1, self.title)
 
-        self.title = 'Smart Meter Analyzer'
-        self.stop_request=stop_request
-        self.plot_queue = plot_queue
         self.power_sensor = PowerSensor(self.plot_queue)
         self.power_sensor.refresh()
         self.paused = False
@@ -55,7 +54,7 @@ class GraphFrame(wx.Frame):
 
         self.redraw_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_redraw_timer, self.redraw_timer)
-        self.redraw_timer.Start(100)
+        self.redraw_timer.Start(1000)
 
     def create_menu(self):
         self.menu_bar = wx.MenuBar()
@@ -98,7 +97,7 @@ class GraphFrame(wx.Frame):
         self.fig = Figure((3.0, 3.0), dpi=self.dpi)
 
         minutes = matplotlib.dates.MinuteLocator()
-        minutesFmt = matplotlib.dates.DateFormatter('%H:M:%S')
+        minutesFmt = matplotlib.dates.DateFormatter('%H:%M')
 
         self.axes = self.fig.add_subplot(111)
         self.plot_data = self.axes.plot_date(x=list(self.power_sensor.power_times), xdate=True,
@@ -108,20 +107,20 @@ class GraphFrame(wx.Frame):
         self.axes.set_title(self.title, size=12)
         self.axes.xaxis.set_major_locator(minutes)
         self.axes.xaxis.set_major_formatter(minutesFmt)
-        self.axes.autoscale_view()
+#        self.axes.autoscale_view()
 
     def draw_plot(self):
         """ Redraws the plot
         """
-#        now = datetime.now()
-#        ago = now - datetime.timedelta(secs=800)
-#        x_max = matplotlib.dates.date2num(now)
-#        x_min = matplotlib.dates.date2num(ago)
-#        y_min = 0
-#        y_max = 5000
+        now = datetime.datetime.now()
+        ago = now - datetime.timedelta(seconds=800)
+        x_max = matplotlib.dates.date2num(now)
+        x_min = matplotlib.dates.date2num(ago)
+        y_min = 0
+        y_max = max(5000, max(self.power_sensor.power_values))
 
-#        self.axes.set_xbound(lower=x_min, upper=x_max)
-#        self.axes.set_ybound(lower=y_min, upper=y_max)
+        self.axes.set_xbound(lower=x_min, upper=x_max)
+        self.axes.set_ybound(lower=y_min, upper=y_max)
 
         # anecdote: axes.grid assumes b=True if any other flag is
         # given even if b is set to False.
@@ -153,13 +152,12 @@ class GraphFrame(wx.Frame):
     def on_save_plot(self, event):
         file_choices = "PNG (*.png)|*.png"
 
-        dlg = wx.FileDialog(
-            self,
-            message="Save plot as...",
-            defaultDir=os.getcwd(),
-            defaultFile="plot.png",
-            wildcard=file_choices,
-            style=wx.SAVE)
+        dlg = wx.FileDialog(self,
+                            message="Save plot as...",
+                            defaultDir=os.getcwd(),
+                            defaultFile="plot.png",
+                            wildcard=file_choices,
+                            style=wx.SAVE)
 
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPath()
@@ -181,10 +179,7 @@ class GraphFrame(wx.Frame):
     def flash_status_message(self, msg, flash_len_ms=1500):
         self.status_bar.SetStatusText(msg)
         self.timer_off = wx.Timer(self)
-        self.Bind(
-            wx.EVT_TIMER,
-            self.on_flash_status_off,
-            self.timer_off)
+        self.Bind(wx.EVT_TIMER, self.on_flash_status_off, self.timer_off)
         self.timer_off.Start(flash_len_ms, oneShot=True)
 
     def on_flash_status_off(self, event):
