@@ -181,7 +181,9 @@ class RavenRecorder(multiprocessing.Process):
             except Queue.Empty:
                 self.is_logging = False
         else:
-            self.log_queue.close()
             self.raven_logger.mark_done()
+            self.log_queue.close()
+            print "closing logger"
+
         return
 

@@ -116,12 +116,13 @@ class Raven(object):
 
 
 class RavenTracer(multiprocessing.Process):
-    def __init__(self, raven_config, log_queue, plot_queue, stop_request):
+    def __init__(self, raven_config, log_queue, plot_queue, stop_request, plot_pause_request):
         multiprocessing.Process.__init__(self)
         self.raven_config = raven_config
         self.log_queue = log_queue
         self.plot_queue = plot_queue
         self.stop_request = stop_request
+        self.plot_pause_request = plot_pause_request
         self.message_types_to_plot = ['0']
         self.r = Raven(self.raven_config)
 
@@ -129,10 +130,11 @@ class RavenTracer(multiprocessing.Process):
         while not self.stop_request.is_set():
             msg = self.r.read()
             self.log_queue.put(msg)
-            if msg["type"] in self.message_types_to_plot:
+            if msg["type"] in self.message_types_to_plot and not self.plot_pause_request.is_set():
                 self.plot_queue.put(msg)
             print msg
         else:
             self.log_queue.put({"type" : "stop"})
+            print "closing tracer"
         return
 

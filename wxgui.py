@@ -11,7 +11,6 @@ import matplotlib.dates
 matplotlib.use('WXAgg')
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigCanvas
-import pylab
 
 
 class PowerSensor(object):
@@ -34,13 +33,14 @@ class PowerSensor(object):
         return self.power_times, self.power_values
 
 
-
 class GraphFrame(wx.Frame):
 
-    def __init__(self, plot_queue, stop_request):
+    def __init__(self, plot_queue, stop_request, plot_pause_request, recorder):
         self.title = 'Smart Meter Analyzer'
         self.stop_request = stop_request
+        self.plot_pause_request = plot_pause_request
         self.plot_queue = plot_queue
+        self.recorder = recorder
 
         wx.Frame.__init__(self, None, -1, self.title)
 
@@ -52,7 +52,7 @@ class GraphFrame(wx.Frame):
         self.create_status_bar()
         self.create_main_panel()
 
-        self.Bind(wx.EVT_CLOSE, self.OnClose)
+        self.Bind(wx.EVT_CLOSE, self.on_close)
 
         self.redraw_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_redraw_timer, self.redraw_timer)
@@ -60,14 +60,13 @@ class GraphFrame(wx.Frame):
 
     def create_menu(self):
         self.menu_bar = wx.MenuBar()
-
         menu_file = wx.Menu()
+
         m_expt = menu_file.Append(-1, "&Save plot\tCtrl-S", "Save plot to file")
         self.Bind(wx.EVT_MENU, self.on_save_plot, m_expt)
         menu_file.AppendSeparator()
         m_exit = menu_file.Append(-1, "E&xit\tCtrl-X", "Exit")
         self.Bind(wx.EVT_MENU, self.on_exit, m_exit)
-
         self.menu_bar.Append(menu_file, "&File")
         self.SetMenuBar(self.menu_bar)
         
@@ -94,6 +93,15 @@ class GraphFrame(wx.Frame):
     def create_status_bar(self):
         self.status_bar = self.CreateStatusBar()
 
+    def scale_axes(self):
+        now = datetime.datetime.now()
+        ago = now - datetime.timedelta(seconds=800)
+        x_max = matplotlib.dates.date2num(now)
+        x_min = matplotlib.dates.date2num(ago)
+        y_min = 0
+        y_max = 5000 if len(self.power_sensor.power_values) < 1 else max(5000, max(self.power_sensor.power_values))
+        return (x_min, x_max), (y_min, y_max)
+
     def init_plot(self):
         self.dpi = 100
         self.fig = Figure((3.0, 3.0), dpi=self.dpi)
@@ -109,18 +117,14 @@ class GraphFrame(wx.Frame):
         self.axes.set_title(self.title, size=12)
         self.axes.xaxis.set_major_locator(minutes)
         self.axes.xaxis.set_major_formatter(minutesFmt)
-#        self.axes.autoscale_view()
+        (x_min, x_max), (y_min, y_max) = self.scale_axes()
+        self.axes.set_xbound(lower=x_min, upper=x_max)
+        self.axes.set_ybound(lower=0, upper=5000)
 
     def draw_plot(self):
         """ Redraws the plot
         """
-        now = datetime.datetime.now()
-        ago = now - datetime.timedelta(seconds=800)
-        x_max = matplotlib.dates.date2num(now)
-        x_min = matplotlib.dates.date2num(ago)
-        y_min = 0
-        y_max = max(5000, max(self.power_sensor.power_values))
-
+        (x_min, x_max), (y_min, y_max) = self.scale_axes()
         self.axes.set_xbound(lower=x_min, upper=x_max)
         self.axes.set_ybound(lower=y_min, upper=y_max)
 
@@ -135,7 +139,7 @@ class GraphFrame(wx.Frame):
         # returns a list over which one needs to explicitly
         # iterate, and setp already handles this.
         #
-        pylab.setp(self.axes.get_xticklabels(), visible=True)
+#        pylab.setp(self.axes.get_xticklabels(), visible=True)
 
         self.plot_data.set_xdata(self.power_sensor.power_times)
         self.plot_data.set_ydata(self.power_sensor.power_values)
@@ -145,7 +149,9 @@ class GraphFrame(wx.Frame):
     def on_pause_button(self, event):
         self.paused = not self.paused
         if self.paused:
-            self.stop_request.set()
+            self.plot_pause_request.set()
+        else:
+            self.plot_pause_request.clear()
 
     def on_update_pause_button(self, event):
         label = "Resume" if self.paused else "Pause"
@@ -172,10 +178,16 @@ class GraphFrame(wx.Frame):
         #
         if not self.paused:
             self.power_sensor.refresh()
-
-        self.draw_plot()
+            self.draw_plot()
 
     def on_exit(self, event):
+        self.stop_request.set()
+        self.recorder.join()
+        self.Destroy()
+
+    def on_close(self, event):
+        self.stop_request.set()
+        self.recorder.join()
         self.Destroy()
 
     def flash_status_message(self, msg, flash_len_ms=1500):
@@ -191,13 +203,19 @@ class GraphFrame(wx.Frame):
 class RavenApp(wx.App):
 
     def __init__(self, redirect=True, filename=None, useBestVisual=False, clearSigInt=True,
-                 plot_queue=None, stop_request=None):
+                 plot_queue=None, stop_request=None, plot_pause_request=None, tracer=None, recorder=None):
         self.plot_queue = plot_queue
         self.stop_request = stop_request
+        self.plot_pause_request= plot_pause_request
+        self.recorder = recorder
+        self.tracer = tracer
         wx.App.__init__(self, redirect, filename, useBestVisual, clearSigInt)
 
     def OnInit(self):
-        self.frame = GraphFrame(self.plot_queue, stop_request= self.stop_request)
+        self.frame = GraphFrame(self.plot_queue,
+                                stop_request=self.stop_request,
+                                plot_pause_request=self.plot_pause_request,
+                                recorder = self.recorder)
         self.frame.Show(True)
         return True
 
