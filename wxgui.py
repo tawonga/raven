@@ -52,6 +52,8 @@ class GraphFrame(wx.Frame):
         self.create_status_bar()
         self.create_main_panel()
 
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
+
         self.redraw_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_redraw_timer, self.redraw_timer)
         self.redraw_timer.Start(1000)
@@ -198,4 +200,7 @@ class RavenApp(wx.App):
         self.frame = GraphFrame(self.plot_queue, stop_request= self.stop_request)
         self.frame.Show(True)
         return True
+
+    def OnExit(self):
+        pass
 

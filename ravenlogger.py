@@ -171,7 +171,7 @@ class RavenRecorder(multiprocessing.Process):
     def run(self):
         while self.is_logging:
             try:
-                q_msq = self.log_queue.get(block=True, timeout=60)
+                q_msq = self.log_queue.get(block=True, timeout=20)
                 type = q_msq["type"]
                 if type in self.log_queue_msg_handler.keys():
                     status = self.log_queue_msg_handler[type](q_msq)
