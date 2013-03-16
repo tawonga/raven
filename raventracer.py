@@ -94,6 +94,7 @@ class Raven(object):
                "status"        : stanza.find("Status").text + ":" + stanza.find("Description").text,
                "channel"       : int(stanza.find("Channel").text),
                "link_strength" : int(stanza.find("LinkStrength").text, 16)}
+        print(msg)
         return msg
 
     def read(self):
@@ -108,7 +109,6 @@ class Raven(object):
                 return self.skip_message
         except xml.etree.ElementTree.ParseError as err:
             print "parse error - probably corrupt message - skipping"
-            print self.raw_xml_msg
             return self.skip_message
 
     def display(self):
@@ -123,7 +123,7 @@ class RavenTracer(multiprocessing.Process):
         self.plot_queue = plot_queue
         self.stop_request = stop_request
         self.plot_pause_request = plot_pause_request
-        self.message_types_to_plot = ['0']
+        self.message_types_to_plot = ['0', '3']
         self.r = Raven(self.raven_config)
 
     def run(self):
@@ -132,7 +132,6 @@ class RavenTracer(multiprocessing.Process):
             self.log_queue.put(msg)
             if msg["type"] in self.message_types_to_plot and not self.plot_pause_request.is_set():
                 self.plot_queue.put(msg)
-            print msg
         else:
             self.log_queue.put({"type" : "stop"})
             print "closing tracer"

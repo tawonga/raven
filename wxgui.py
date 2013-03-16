@@ -16,12 +16,17 @@ from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigCanvas
 
 class PowerSensor(object):
 
-    def __init__(self, plot_queue, init=100):
+    def __init__(self, plot_queue, msg_list_fifo, init=100):
+        self.UNKNOWN = "unknown"
+        self.PAD = " " * 30
         self.plot_queue = plot_queue
+        self.msg_list_fifo = msg_list_fifo
         self.power_times = collections.deque(maxlen=init)
         self.power_values = collections.deque(maxlen=init)
-        self.smartmeter_mac_address = "unknown"
-        self.raven_mac_address = "unknown"
+        self.smartmeter_mac_address = self.UNKNOWN + self.PAD
+        self.raven_mac_address = self.UNKNOWN
+        self.smartmeter_channel = self.UNKNOWN + self.PAD
+        self.smartmeter_signal = self.UNKNOWN + self.PAD
 
     def refresh(self):
         more_power_reads = True
@@ -33,10 +38,82 @@ class PowerSensor(object):
                     self.raven_mac_address = reading["raven_mac_address"]
                     self.power_times.append(reading["msg_time"])
                     self.power_values.append(reading["msg_value"])
+                if reading["type"] == "3":
+                    self.smartmeter_channel = reading["Channel"]
+                    self.smartmeter_signal = reading["LinkStrength"]
+                self.msg_list_fifo.append(reading)
             except Queue.Empty:
                 more_power_reads = False
 
         return self.power_times, self.power_values
+
+    
+class InfoBox(object):
+
+    def __init__(self, panel=None, label='', field_dfn=None, font=None):
+        self.label = label
+        self.field_dfn = field_dfn
+        self.box = wx.StaticBox(panel, -1, label)
+        self.box_sizer = wx.StaticBoxSizer(self.box, wx.VERTICAL)
+        self.flex_sizer = wx.FlexGridSizer(rows=2,cols=2,hgap=8,vgap=8)
+        for fld, seq in sorted(self.field_dfn.items(), key=lambda (k,v): v['seq']):
+            spec = self.field_dfn[fld]
+            tag = GenStaticText(panel, -1, label=fld+":")
+            tag.SetFont(font)
+            spec["display"] = GenStaticText(panel, -1, label=spec["value"])
+            spec["display"].SetFont(font)
+            self.flex_sizer.Add(tag, 0, wx.ALIGN_RIGHT)
+            self.flex_sizer.Add(spec["display"], 0, wx.ALIGN_LEFT | wx.GROW)
+        self.box_sizer.Add(self.flex_sizer, 0, flag=wx.ALIGN_LEFT | wx.TOP | wx.GROW)
+
+    def set_field_value(self, tag, new_value):
+        self.field_dfn[tag]["value"] = new_value
+        self.field_dfn[tag]["display"].SetLabel(new_value)
+
+
+class MessageList(wx.ListCtrl):
+
+    def __init__(self, parent, msg_list_fifo):
+        super(MessageList, self).__init__(parent, size=(400,100), style=wx.LC_REPORT)
+
+        self.msg_list_fifo = msg_list_fifo
+
+        self.InsertColumn(0, "timestamp", format=wx.LIST_FORMAT_LEFT)
+        self.InsertColumn(1, "type", format=wx.LIST_FORMAT_CENTER)
+        self.InsertColumn(2, "content", format=wx.LIST_FORMAT_LEFT)
+
+        self.index = 0
+
+    def format_message(self, msg):
+        content_format = "channel: {} sig: {} desc: {}"
+        formatted_msg = {"msg_time" : msg["msg_time"].strftime('%H:%M:%S'),
+                         "type" : msg["type"]}
+        if msg["type"] in ["0", "1"]:
+            formatted_msg["content"] = "{:,} watts".format(msg["msg_value"])
+        elif msg["type"] == "3":
+            formatted_msg["content"] = content_format.format(msg["channel"], msg["link_strength"], msg["status"])
+        return formatted_msg
+
+    def push_message(self, msg):
+        if self.index >= 99:
+            self.DeleteItem(99)
+        formatted_msg = self.format_message(msg)
+        self.InsertStringItem(0, formatted_msg["msg_time"])
+        self.SetStringItem(0, 1, formatted_msg["type"])
+        self.SetStringItem(0, 2, formatted_msg["content"])
+        self.SetColumnWidth(0, 80)
+        self.SetColumnWidth(1, 40)
+        self.SetColumnWidth(2, 280)
+        self.index += 1
+
+    def refresh(self):
+        have_queued_messages = True
+        while have_queued_messages:
+            try:
+                msg = self.msg_list_fifo.popleft()
+                self.push_message(msg)
+            except IndexError:
+                have_queued_messages = False
 
 
 class GraphFrame(wx.Frame):
@@ -48,10 +125,13 @@ class GraphFrame(wx.Frame):
         self.plot_queue = plot_queue
         self.recorder = recorder
         self.tracer=tracer
+        self.small_font = wx.Font(8, wx.DEFAULT, wx.NORMAL, wx.NORMAL, False)
 
         wx.Frame.__init__(self, None, -1, self.title)
 
-        self.power_sensor = PowerSensor(self.plot_queue)
+        self.msg_list_fifo = collections.deque()
+
+        self.power_sensor = PowerSensor(self.plot_queue, self.msg_list_fifo)
         self.power_sensor.refresh()
         self.paused = False
 
@@ -89,46 +169,15 @@ class GraphFrame(wx.Frame):
         raven_data["mac address"]["value"] = self.power_sensor.raven_mac_address
         return raven_data
 
-    def create_raven_info_panel(self):
-        box = wx.StaticBox(self.panel, -1, "RAVEn Radio Adapter" )
-        box_sizer = wx.StaticBoxSizer(box, wx.VERTICAL)
-        flex_sizer = wx.FlexGridSizer(rows=2,cols=2,hgap=8,vgap=8)
-        small_font = wx.Font(8, wx.DEFAULT, wx.NORMAL, wx.NORMAL, False)
-        self.raven_data = self.ravenTextFieldData()
-        for fld, seq in sorted(self.raven_data.items(), key=lambda (k,v): v['seq']):
-            spec = self.raven_data[fld]
-            tag = GenStaticText(self.panel, -1, label=fld+":")
-            tag.SetFont(small_font)
-            spec["display"] = GenStaticText(self.panel, -1, label=spec["value"])
-            spec["display"].SetFont(small_font)
-            flex_sizer.Add(tag, 0, wx.ALIGN_RIGHT)
-            flex_sizer.Add(spec["display"], 0, wx.ALIGN_LEFT | wx.GROW)
-        self.Fit()
-        box_sizer.Add(flex_sizer, 0, flag=wx.ALIGN_LEFT | wx.TOP | wx.GROW)
-        return box_sizer
-        
     def smartmeterTextFieldData(self):
         labels = [('mac address', 1),
                   ('channel',2),
                   ('signal',3)]
         smartmeter_data = {label: {"seq": seq, "value" :'', 'display' : ''} for label, seq in labels}
         smartmeter_data["mac address"]["value"] = self.power_sensor.smartmeter_mac_address
+        smartmeter_data["channel"]["value"] = self.power_sensor.smartmeter_channel
+        smartmeter_data["signal"]["value"] = self.power_sensor.smartmeter_signal
         return smartmeter_data
-
-    def create_smartmeter_info_panel(self):
-        smartmeter_box = wx.FlexGridSizer(rows=2,cols=2,hgap=8,vgap=8)
-        small_font = wx.Font(8, wx.DEFAULT, wx.NORMAL, wx.NORMAL, False)
-        self.smartmeter_data = self.smartmeterTextFieldData()
-        for fld, seq in sorted(self.smartmeter_data.items(), key=lambda (k,v): v['seq']):
-            spec = self.smartmeter_data[fld]
-            tag = GenStaticText(self.panel, -1, label=fld + ":")
-            tag.SetFont(small_font)
-            spec["display"] = GenStaticText(self.panel, -1, label=spec["value"])
-            spec["display"].SetFont(small_font)
-            smartmeter_box.Add(tag, 0, wx.ALIGN_RIGHT)
-            smartmeter_box.Add(spec["display"], 0, wx.ALIGN_LEFT | wx.GROW)
-        self.Fit()
-        return smartmeter_box
 
     def create_main_panel(self):
         self.panel = wx.Panel(self)
@@ -136,22 +185,29 @@ class GraphFrame(wx.Frame):
         self.init_plot()
         self.canvas = FigCanvas(self.panel, -1, self.fig)
 
-        self.pause_button = wx.Button(self.panel, -1, "Pause")
+        self.pause_button = wx.Button(self.panel, -1, "Pause Monitoring")
         self.Bind(wx.EVT_BUTTON, self.on_pause_button, self.pause_button)
         self.Bind(wx.EVT_UPDATE_UI, self.on_update_pause_button, self.pause_button)
 
-        self.raven_box = self.create_raven_info_panel()
-        self.smartmeter_box = self.create_smartmeter_info_panel()
+        self.raven_field_dfn = self.ravenTextFieldData()
+        self.raven_box = InfoBox(self.panel, "RAVEn radio adapter", self.raven_field_dfn, font=self.small_font)
+
+        self.smartmeter_field_dfn = self.smartmeterTextFieldData()
+        self.smartmeter_box = InfoBox(self.panel, "smartmeter", self.smartmeter_field_dfn, font=self.small_font)
+
+        self.msg_list = MessageList(self.panel, self.msg_list_fifo)
+        self.msg_list.SetFont(self.small_font)
 
         self.hbox1 = wx.BoxSizer(wx.HORIZONTAL)
         self.hbox1.Add(self.pause_button, border=5, flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL)
 
         self.hbox2 = wx.BoxSizer(wx.HORIZONTAL)
-        self.hbox2.Add(self.raven_box, border=5, flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL)
-        self.hbox2.Add(self.smartmeter_box, border=5, flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL)
+        self.hbox2.Add(self.raven_box.box_sizer, border=5, flag=wx.ALL | wx.TOP)
+        self.hbox2.Add(self.smartmeter_box.box_sizer, border=5, flag=wx.ALL | wx.TOP)
+        self.hbox2.Add(self.msg_list, border=5, flag=wx.ALL | wx.TOP | wx.GROW)
 
         self.vbox = wx.BoxSizer(wx.VERTICAL)
-        self.vbox.Add(self.canvas, 1, flag=wx.LEFT | wx.TOP | wx.GROW)
+        self.vbox.Add(self.canvas, 0, flag=wx.LEFT | wx.TOP | wx.GROW)
         self.vbox.Add(self.hbox1, 0, flag=wx.ALIGN_LEFT | wx.TOP | wx.GROW)
         self.vbox.Add(self.hbox2, 0, flag=wx.ALIGN_LEFT | wx.TOP | wx.GROW)
 
@@ -222,7 +278,7 @@ class GraphFrame(wx.Frame):
             self.plot_pause_request.clear()
 
     def on_update_pause_button(self, event):
-        label = "Resume" if self.paused else "Pause"
+        label = "Resume Monitoring" if self.paused else "Pause Monitoring"
         self.pause_button.SetLabel(label)
 
     def on_save_plot(self, event):
@@ -247,8 +303,13 @@ class GraphFrame(wx.Frame):
         if not self.paused:
             self.power_sensor.refresh()
         self.draw_plot()
-        self.raven_data['mac address']["display"].SetLabel(self.power_sensor.raven_mac_address)
-        self.smartmeter_data['mac address']["display"].SetLabel(self.power_sensor.smartmeter_mac_address)
+
+        self.msg_list.refresh()
+
+        self.raven_box.set_field_value('mac address', self.power_sensor.raven_mac_address)
+        self.smartmeter_box.set_field_value('mac address', self.power_sensor.smartmeter_mac_address)
+        self.smartmeter_box.set_field_value('channel', self.power_sensor.smartmeter_channel)
+        self.smartmeter_box.set_field_value('signal', self.power_sensor.smartmeter_signal)
 
     def on_exit(self, event):
         self.stop_request.set()
