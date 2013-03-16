@@ -67,7 +67,7 @@ class CfgParser(object):
 
     def auto_find_raven_usb_config(self):
         ports = [port for (port, desc, id) in serial.tools.list_ports_posix.comports() if re.search("0403:8a28", id)]
-        return  {"port" : ports[0], "baudrate" : 115200} if len(ports) == 1 else {}
+        return  {"port" : ports[0], "desc" : desc, "id" : id, "baudrate" : 115200} if len(ports) == 1 else {}
 
 
 def scan_and_record(raven_usb_config, db_config):
@@ -79,16 +79,22 @@ def scan_and_record(raven_usb_config, db_config):
     recorder.start()
 
     stop_request = multiprocessing.Event()
-    stop_request.clear()
+    plot_pause_request = multiprocessing.Event()
 
-    tracer = raventracer.RavenTracer(raven_usb_config, log_queue, plot_queue, stop_request)
+    tracer = raventracer.RavenTracer(raven_usb_config, log_queue, plot_queue, stop_request, plot_pause_request)
     tracer.start()
 
-    app = wxgui.RavenApp(plot_queue=plot_queue, stop_request=stop_request)
+    app = wxgui.RavenApp(plot_queue=plot_queue,
+                         stop_request=stop_request,
+                         plot_pause_request = plot_pause_request,
+                         tracer=tracer,
+                         recorder=recorder)
     app.MainLoop()
 
     recorder.join()
     return
+
+
 
 def main():
     parser = CommandLineParser()
@@ -113,8 +119,6 @@ def main():
         sys.exit()
 
     scan_and_record(raven_usb_config, db_config)
-
-
 if __name__ == '__main__':
     main()
     sys.exit()
