@@ -8,6 +8,9 @@ import datetime
 
 import matplotlib
 import matplotlib.dates
+from matplotlib.ticker import FuncFormatter
+
+import wx.lib.inspection
 
 matplotlib.use('WXAgg')
 from matplotlib.figure import Figure
@@ -119,7 +122,7 @@ class MessageList(wx.ListCtrl):
 class GraphFrame(wx.Frame):
 
     def __init__(self, plot_queue=None, stop_request=None, plot_pause_request=None, tracer=None, recorder=None):
-        self.title = 'Smart Meter Analyzer'
+        self.title = 'Smartmeter Monitor'
         self.stop_request = stop_request
         self.plot_pause_request = plot_pause_request
         self.plot_queue = plot_queue
@@ -135,7 +138,7 @@ class GraphFrame(wx.Frame):
         self.power_sensor.refresh()
         self.paused = False
 
-        self.create_menu()
+        self.create_menu_bar()
         self.create_status_bar()
         self.create_main_panel()
 
@@ -145,17 +148,30 @@ class GraphFrame(wx.Frame):
         self.Bind(wx.EVT_TIMER, self.on_redraw_timer, self.redraw_timer)
         self.redraw_timer.Start(3000)
 
-    def create_menu(self):
-        self.menu_bar = wx.MenuBar()
-        menu_file = wx.Menu()
+    def menu_data(self):
+        return (("&File",
+                        ("&Save plot\tCtrl-S", "Save plot to file", self.on_save_plot),
+                        ("E&xit\tCtrl-X",      "Exit",              self.on_exit)),
+                 ("&Diagnostics",
+                        ("&Widget Inspector", "Launch wxPython Widget Inspector", self.on_widget_inspector)))
 
-        m_expt = menu_file.Append(-1, "&Save plot\tCtrl-S", "Save plot to file")
-        self.Bind(wx.EVT_MENU, self.on_save_plot, m_expt)
-        menu_file.AppendSeparator()
-        m_exit = menu_file.Append(-1, "E&xit\tCtrl-X", "Exit")
-        self.Bind(wx.EVT_MENU, self.on_exit, m_exit)
-        self.menu_bar.Append(menu_file, "&File")
-        self.SetMenuBar(self.menu_bar)
+    def create_menu_bar(self):
+        menu_bar = wx.MenuBar()
+        for each_menu_data in self.menu_data():
+            label = each_menu_data[0]
+            self.items = each_menu_data[1:]
+            menu_bar.Append(self.create_menu(self.items), label)
+        self.SetMenuBar(menu_bar)
+
+    def create_menu(self, menu_data):
+        menu = wx.Menu()
+        for each_label, each_status, each_handler in menu_data:
+            if not each_label:
+                menu.AppendSeparator()
+                continue
+            menu_item = menu.Append(-1, each_label, each_status)
+            self.Bind(wx.EVT_MENU, each_handler, menu_item)
+        return menu
 
     def ravenTextFieldData(self):
         labels = [('port',1),
@@ -233,17 +249,24 @@ class GraphFrame(wx.Frame):
         minutes = matplotlib.dates.MinuteLocator()
         minutesFmt = matplotlib.dates.DateFormatter('%H:%M')
 
+        def thousands(self,x):
+            return "{:,}".format(x)
+
         self.axes = self.fig.add_subplot(111)
+
         self.plot_data = self.axes.plot_date(x=list(self.power_sensor.power_times), xdate=True,
                                              y=list(self.power_sensor.power_values), ydate=False,
                                              fmt='-')[0]
-        self.axes.set_axis_bgcolor('black')
+        self.axes.set_axis_bgcolor('white')
         self.axes.set_title(self.title, size=12)
         self.axes.xaxis.set_major_locator(minutes)
         self.axes.xaxis.set_major_formatter(minutesFmt)
+        self.axes.yaxis.set_major_formatter(FuncFormatter(thousands))
+        self.axes.set_ylabel("kilowatts")
         (x_min, x_max), (y_min, y_max) = self.scale_axes()
         self.axes.set_xbound(lower=x_min, upper=x_max)
         self.axes.set_ybound(lower=0, upper=5000)
+
 
     def draw_plot(self):
         """ Redraws the plot
@@ -252,18 +275,14 @@ class GraphFrame(wx.Frame):
         self.axes.set_xbound(lower=x_min, upper=x_max)
         self.axes.set_ybound(lower=y_min, upper=y_max)
 
-        # anecdote: axes.grid assumes b=True if any other flag is
-        # given even if b is set to False.
-        # so just passing the flag into the first statement won't
-        # work.
-        #
         self.axes.grid(True, color='gray')
 
-        # Using setp here is convenient, because get_xticklabels
-        # returns a list over which one needs to explicitly
-        # iterate, and setp already handles this.
-        #
-#        pylab.setp(self.axes.get_xticklabels(), visible=True)
+        for tick in self.axes.xaxis.get_major_ticks():
+            tick.label.set_fontsize(8)
+            tick.label.set_rotation('vertical')
+
+        for tick in self.axes.yaxis.get_major_ticks():
+            tick.label.set_fontsize(10)
 
         self.plot_data.set_xdata(self.power_sensor.power_times)
         self.plot_data.set_ydata(self.power_sensor.power_values)
@@ -310,6 +329,9 @@ class GraphFrame(wx.Frame):
         self.smartmeter_box.set_field_value('mac address', self.power_sensor.smartmeter_mac_address)
         self.smartmeter_box.set_field_value('channel', self.power_sensor.smartmeter_channel)
         self.smartmeter_box.set_field_value('signal', self.power_sensor.smartmeter_signal)
+
+    def on_widget_inspector(self, event):
+        wx.lib.inspection.InspectionTool().Show()
 
     def on_exit(self, event):
         self.stop_request.set()
